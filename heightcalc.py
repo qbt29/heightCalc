@@ -1,6 +1,5 @@
 import numpy as np
 import math
-
 def generate_random_heights(n: int, m: int) -> np.ndarray:
     return np.random.randint(1, 101, size=(n, m), dtype=np.int16)
 
@@ -44,3 +43,11 @@ def compute_visibility(n: int, m: int, start_x: int, start_y: int,
             r += 1
 
     return visibility
+import pyximport
+pyximport.install(
+	setup_args={"include_dirs": np.get_include()}
+)
+import calculation as calc
+def compute_visibility_cyt(n: int, m: int, start_x: int, start_y: int,
+                       heights: np.ndarray, scale: int = 360):
+    return calc.compute_visibility_cyt(n, m, start_x, start_y, heights, scale)

@@ -2,8 +2,8 @@ import pyglet
 from pyglet.gl import *
 from pyglet.window import key, mouse
 import numpy as np
-from heightcalc import generate_random_heights, compute_visibility
-
+from heightcalc import generate_random_heights, compute_visibility, compute_visibility_cyt
+import time
 # ----------------------------
 WINDOW_WIDTH = 800
 WINDOW_HEIGHT = 600
@@ -161,8 +161,10 @@ def on_mouse_press(x, y, button, modifiers):
                 selected_cell = cell
                 row, col = cell
                 print(f"Computing visibility from ({row}, {col})...")
-                visibility = compute_visibility(N, M, row, col, heights)
-                print("Done.")
+                start_time = time.time()
+                visibility = compute_visibility_cyt(N, M, row, col, heights)
+                end_time = time.time()
+                print(f"Done in {end_time - start_time} s.")
                 update_visuals()
 
 @window.event
