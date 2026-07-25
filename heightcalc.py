@@ -44,8 +44,20 @@ def compute_visibility(n: int, m: int, start_x: int, start_y: int,
 
     return visibility
 import pyximport
+import sys
+if sys.platform == 'win32':
+    extra_compile_args = ['/openmp']
+    extra_link_args = []   # /openmp automatically links vcomp140.lib
+else:
+    extra_compile_args = ['-fopenmp']
+    extra_link_args = ['-fopenmp']
+
 pyximport.install(
-	setup_args={"include_dirs": np.get_include()}
+    setup_args={
+        "include_dirs": [np.get_include()],
+        "extra_compile_args": extra_compile_args,
+        "extra_link_args": extra_link_args,
+    }
 )
 import calculation as calc
 def compute_visibility_cyt(n: int, m: int, start_x: int, start_y: int,

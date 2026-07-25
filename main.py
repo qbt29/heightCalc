@@ -162,7 +162,7 @@ def on_mouse_press(x, y, button, modifiers):
                 row, col = cell
                 print(f"Computing visibility from ({row}, {col})...")
                 start_time = time.time()
-                visibility = compute_visibility_cyt(N, M, row, col, heights)
+                visibility = compute_visibility_cyt(N, M, row, col, heights, scale=1080)
                 end_time = time.time()
                 print(f"Done in {end_time - start_time} s.")
                 update_visuals()
