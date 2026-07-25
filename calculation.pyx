@@ -22,7 +22,7 @@ cdef inline void process_ray(cnp.int16_t n, cnp.int16_t m,
 								cnp.npy_bool[:,:] visibility) noexcept nogil:
 		cdef cnp.int16_t start_height = heights[start_x, start_y]
 		cdef int r, x, y, dx, dy
-		cdef double max_angle, angle, dist
+		cdef double max_angle, angle, dist, dh
 		max_angle = -1e99
 		r = 1
 		while True:
@@ -39,8 +39,9 @@ cdef inline void process_ray(cnp.int16_t n, cnp.int16_t m,
 			dx = x - start_x
 			dy = y - start_y
 			dist = hypot(<double>dx, <double>dy)
-			angle = atan2(<double>(heights[x, y] - start_height), dist)
-			
+			dh = heights[x, y] - start_height
+			angle = dh/dist
+			#angle = atan2(<double>(heights[x, y] - start_height), dist)
 			if angle > max_angle:
 				visibility[x, y] = 1
 				max_angle = angle
@@ -56,7 +57,7 @@ cdef void compute_visibility_mv(cnp.int16_t n, cnp.int16_t m,
 								cnp.float64_t[:] sin_vals,
 								cnp.npy_bool[:,:] visibility) noexcept nogil:
 	cdef int alpha_idx
-	for alpha_idx in prange(scale, nogil=True, schedule='guided', num_threads=16):
+	for alpha_idx in prange(scale, nogil=True, schedule='guided', num_threads=16, chunksize=225):
 		process_ray(n, m, start_x, start_y, heights, scale,
 			cos_vals[alpha_idx], sin_vals[alpha_idx], visibility)
 
