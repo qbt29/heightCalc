@@ -1,161 +1,188 @@
-import pygame
-import sys
+import pyglet
+from pyglet.gl import *
+from pyglet.window import key, mouse
 import numpy as np
 from heightcalc import generate_random_heights, compute_visibility
 
-pygame.init()
-
+# ----------------------------
 WINDOW_WIDTH = 800
 WINDOW_HEIGHT = 600
 MIN_CELL_SIZE = 5
 MAX_CELL_SIZE = 120
-FONT_SIZE = 24
 
-# Цвета
+# Цвета в формате (R, G, B) целые 0..255
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
-RED = (255, 100, 100)
-GREEN = (100, 255, 100)
-SELECTED_COLOR = (255, 200, 50)
+RED = (255, 102, 102)
+GREEN = (102, 255, 102)
+SELECTED = (255, 204, 51)   # жёлтый
 
-# Размеры поля
+# Размеры поля (можно менять, например 1000, 1000)
 N, M = 10000, 10000
-
 heights = generate_random_heights(N, M)
 visibility = None
 selected_cell = None
-cell_size = 40  # начальный размер ячейки
+cell_size = 20   # начальный размер ячейки в пикселях
 
-screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-pygame.display.set_caption("Visibility Demo (Scroll to zoom)")
-clock = pygame.time.Clock()
-font = pygame.font.Font(None, FONT_SIZE)
+window = pyglet.window.Window(WINDOW_WIDTH, WINDOW_HEIGHT,
+                              caption="Visibility Demo (Texture)")
 
+# ----------------------------
+# Глобальные объекты для рендеринга
+color_array = None          # numpy (N, M, 3) uint8
+sprite = None               # pyglet.sprite.Sprite
 
-def get_cell_size_for_font(size):
-	"""Возвращает подходящий размер шрифта в зависимости от размера ячейки"""
-	if size < 15:
-		return 10
-	elif size < 25:
-		return 14
-	elif size < 40:
-		return 18
-	elif size < 60:
-		return 24
-	else:
-		return 32
+def create_sprite():
+    """Создаёт спрайт из текущего color_array с настройкой фильтрации."""
+    global sprite
+    if color_array is None:
+        return
+    # Переворачиваем по вертикали для OpenGL
+    flipped = np.flipud(color_array)
+    data = flipped.tobytes()
+    image = pyglet.image.ImageData(M, N, 'RGB', data, pitch=M * 3)
+    texture = image.get_texture()
+    # Чёткие пиксели без размытия
+    glBindTexture(GL_TEXTURE_2D, texture.id)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+    glBindTexture(GL_TEXTURE_2D, 0)
+    sprite = pyglet.sprite.Sprite(texture)
+    update_sprite_position_and_size()
 
+def update_sprite_position_and_size():
+    """Центрирует спрайт и устанавливает размер согласно cell_size."""
+    if sprite is None:
+        return
+    total_w = M * cell_size
+    total_h = N * cell_size
+    sprite.width = total_w
+    sprite.height = total_h
+    sprite.x = (WINDOW_WIDTH - total_w) // 2
+    sprite.y = (WINDOW_HEIGHT - total_h) // 2
 
-def draw_grid():
-	total_w = M * cell_size
-	total_h = N * cell_size
+def update_colors():
+    """Пересчитывает color_array на основе visibility и selected_cell."""
+    global color_array
+    if visibility is None:
+        color_array = np.full((N, M, 3), WHITE, dtype=np.uint8)
+    else:
+        # Зелёные видимые, красные невидимые
+        color_array = np.where(visibility[..., None],
+                               np.array(GREEN, dtype=np.uint8),
+                               np.array(RED, dtype=np.uint8))
+    if selected_cell is not None:
+        row, col = selected_cell
+        color_array[row, col] = SELECTED
 
-	# Центрируем поле
-	off_x = (WINDOW_WIDTH - total_w) // 2
-	off_y = (WINDOW_HEIGHT - total_h) // 2
+def update_visuals():
+    """Обновляет цвета и пересоздаёт спрайт."""
+    update_colors()
+    create_sprite()
 
-	# Определяем размер шрифта
-	font_size = get_cell_size_for_font(cell_size)
-	current_font = pygame.font.Font(None, font_size)
-
-	for row in range(N):
-		for col in range(M):
-			x = off_x + col * cell_size
-			y = off_y + row * cell_size
-
-			# Выбор цвета
-			if selected_cell == (row, col):
-				color = SELECTED_COLOR
-			elif visibility is not None:
-				color = GREEN if visibility[row, col] else RED
-			else:
-				color = WHITE
-
-			pygame.draw.rect(screen, color, (x, y, cell_size, cell_size))
-			pygame.draw.rect(screen, BLACK, (x, y, cell_size, cell_size), max(1, cell_size // 30))
-
-			# Отображаем высоту только если ячейка достаточно большая
-			if cell_size >= 20:
-				text = current_font.render(str(heights[row, col]), True, BLACK)
-				text_rect = text.get_rect(center=(x + cell_size // 2, y + cell_size // 2))
-				screen.blit(text, text_rect)
-
-	# Информация вверху экрана
-	info_texts = [
-		f"Selected: {selected_cell if selected_cell else 'None'}",
-		f"Zoom: {cell_size}px",
-		f"Scroll to zoom | ESC to clear"
-	]
-	for i, text in enumerate(info_texts):
-		surf = font.render(text, True, BLACK)
-		screen.blit(surf, (10, 10 + i * 25))
-
-
-def get_cell_from_pos(pos):
-	total_w = M * cell_size
-	total_h = N * cell_size
-	off_x = (WINDOW_WIDTH - total_w) // 2
-	off_y = (WINDOW_HEIGHT - total_h) // 2
-	px, py = pos
-	if off_x <= px <= off_x + total_w and off_y <= py <= off_y + total_h:
-		col = (px - off_x) // cell_size
-		row = (py - off_y) // cell_size
-		if 0 <= row < N and 0 <= col < M:
-			return (row, col)
-	return None
-
+def get_cell_from_pos(px, py):
+    """Определяет индекс ячейки по координатам окна."""
+    if sprite is None:
+        return None
+    x0, y0 = sprite.x, sprite.y
+    w, h = sprite.width, sprite.height
+    if x0 <= px <= x0 + w and y0 <= py <= y0 + h:
+        col = int((px - x0) // cell_size)
+        # Инвертируем Y, так как экранные координаты идут сверху вниз,
+        # а массив heights индексируется снизу вверх?
+        # В оригинале row считался инвертированным: row = N-1 - (py - y0)//cell_size
+        row = int((N - 1) - (py - y0) // cell_size)
+        if 0 <= row < N and 0 <= col < M:
+            return (row, col)
+    return None
 
 def reset_selection():
-	global selected_cell, visibility
-	selected_cell = None
-	visibility = None
+    global selected_cell, visibility
+    selected_cell = None
+    visibility = None
+    update_visuals()
 
+# ----------------------------
+# Инициализация
+update_visuals()
 
-def main():
-	global selected_cell, visibility, cell_size
+# ----------------------------
+@window.event
+def on_draw():
+    window.clear()
+    if sprite is not None:
+        sprite.draw()
 
-	running = True
+    # Информационная панель
+    info_lines = [
+        f"Selected: {selected_cell if selected_cell else 'None'}",
+        f"Zoom: {cell_size}px",
+        "Scroll to zoom | ESC to clear | R reset zoom"
+    ]
+    for i, line in enumerate(info_lines):
+        label = pyglet.text.Label(line,
+                                  font_name='Arial',
+                                  font_size=14,
+                                  x=10,
+                                  y=WINDOW_HEIGHT - 10 - i * 25,
+                                  anchor_x='left', anchor_y='top',
+                                  color=(0, 0, 0, 255))
+        label.draw()
 
-	while running:
-		for event in pygame.event.get():
-			if event.type == pygame.QUIT:
-				running = False
+    # Текст высот только для небольших полей
+    if cell_size >= 25 and N * M <= 500:
+        total_w = M * cell_size
+        total_h = N * cell_size
+        off_x = (WINDOW_WIDTH - total_w) // 2
+        off_y = (WINDOW_HEIGHT - total_h) // 2
+        font_size = 12 if cell_size < 40 else 18
+        for row in range(N):
+            for col in range(M):
+                x = off_x + col * cell_size + cell_size // 2
+                y = off_y + (N - 1 - row) * cell_size + cell_size // 2
+                label = pyglet.text.Label(str(heights[row, col]),
+                                          font_name='Arial',
+                                          font_size=font_size,
+                                          x=x, y=y,
+                                          anchor_x='center', anchor_y='center',
+                                          color=(0, 0, 0, 255))
+                label.draw()
 
-			elif event.type == pygame.MOUSEBUTTONDOWN:
-				if event.button == 1:  # Левая кнопка
-					cell = get_cell_from_pos(event.pos)
-					if cell is not None:
-						if selected_cell == cell:
-							reset_selection()
-						else:
-							selected_cell = cell
-							row, col = cell
-							visibility = compute_visibility(N, M, row, col, heights)
+# ----------------------------
+@window.event
+def on_mouse_press(x, y, button, modifiers):
+    global selected_cell, visibility
+    if button == mouse.LEFT:
+        cell = get_cell_from_pos(x, y)
+        if cell is not None:
+            if selected_cell == cell:
+                reset_selection()
+            else:
+                selected_cell = cell
+                row, col = cell
+                print(f"Computing visibility from ({row}, {col})...")
+                visibility = compute_visibility(N, M, row, col, heights)
+                print("Done.")
+                update_visuals()
 
-				elif event.button == 4:  # Колёсико вверх (увеличение)
-					new_size = min(cell_size + 5, MAX_CELL_SIZE)
-					if new_size != cell_size:
-						cell_size = new_size
+@window.event
+def on_mouse_scroll(x, y, scroll_x, scroll_y):
+    global cell_size
+    new_size = min(cell_size + 5, MAX_CELL_SIZE) if scroll_y > 0 else max(cell_size - 5, MIN_CELL_SIZE)
+    if new_size != cell_size:
+        cell_size = new_size
+        update_sprite_position_and_size()
+        print(f"Zoom: {cell_size}px")
 
-				elif event.button == 5:  # Колёсико вниз (уменьшение)
-					new_size = max(cell_size - 5, MIN_CELL_SIZE)
-					if new_size != cell_size:
-						cell_size = new_size
+@window.event
+def on_key_press(symbol, modifiers):
+    if symbol == key.ESCAPE:
+        reset_selection()
+    elif symbol == key.R:
+        global cell_size
+        cell_size = 40
+        update_sprite_position_and_size()
 
-			elif event.type == pygame.KEYDOWN:
-				if event.key == pygame.K_ESCAPE:
-					reset_selection()
-				elif event.key == pygame.K_r:
-					cell_size = 40
-
-		screen.fill(WHITE)
-		draw_grid()
-		pygame.display.flip()
-		clock.tick(60)
-
-	pygame.quit()
-	sys.exit()
-
-
+# ----------------------------
 if __name__ == "__main__":
-	main()
+    pyglet.app.run()
